@@ -1,10 +1,10 @@
 package com.devsuperior.bds01.controllers;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -15,6 +15,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.devsuperior.bds01.dto.EmployeeDTO;
+import com.devsuperior.bds01.tests.TokenUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @SpringBootTest
@@ -28,22 +29,43 @@ public class EmployeeControllerIT {
 	@Autowired
 	private ObjectMapper objectMapper;
 	
-	@Test
-	public void findAllShouldReturnPagedResourcesSortedByName() throws Exception {
+	@Autowired
+	private TokenUtil tokenUtil;
+	
+	private String operatorUsername;
+	private String operatorPassword;
+	private String adminUsername;
+	private String adminPassword;
+	
+	@BeforeEach
+	void setUp() throws Exception {
 		
-		ResultActions result =
-				mockMvc.perform(get("/employees")
-					.contentType(MediaType.APPLICATION_JSON));
-
-		result.andExpect(status().isOk());
-		result.andExpect(jsonPath("$.content").exists());
-		result.andExpect(jsonPath("$.content[0].name").value("Alex"));
-		result.andExpect(jsonPath("$.content[1].name").value("Ana"));
-		result.andExpect(jsonPath("$.content[2].name").value("Andressa"));
+		operatorUsername = "ana@gmail.com";
+		operatorPassword = "123456";
+		adminUsername = "bob@gmail.com";
+		adminPassword = "123456";
 	}
 	
 	@Test
-	public void insertShouldInsertResource() throws Exception {
+	public void insertShouldReturn403WhenOperatorLogged() throws Exception {
+
+		String accessToken = tokenUtil.obtainAccessToken(mockMvc, operatorUsername, operatorPassword);
+
+		EmployeeDTO dto = new EmployeeDTO(null, "Joaquim", "joaquim@gmail.com", 1L);
+		String jsonBody = objectMapper.writeValueAsString(dto);
+		
+		ResultActions result =
+				mockMvc.perform(post("/employees")
+					.header("Authorization", "Bearer " + accessToken)
+					.content(jsonBody)
+					.contentType(MediaType.APPLICATION_JSON)
+					.accept(MediaType.APPLICATION_JSON));
+		
+		result.andExpect(status().isForbidden());
+	}	
+
+	@Test
+	public void insertShouldReturn401WhenNoUserLogged() throws Exception {
 
 		EmployeeDTO dto = new EmployeeDTO(null, "Joaquim", "joaquim@gmail.com", 1L);
 		String jsonBody = objectMapper.writeValueAsString(dto);
@@ -54,10 +76,88 @@ public class EmployeeControllerIT {
 					.contentType(MediaType.APPLICATION_JSON)
 					.accept(MediaType.APPLICATION_JSON));
 		
+		result.andExpect(status().isUnauthorized());
+	}	
+	
+	@Test
+	public void insertShouldInsertResourceWhenAdminLoggedAndCorrectData() throws Exception {
+
+		String accessToken = tokenUtil.obtainAccessToken(mockMvc, adminUsername, adminPassword);
+
+		EmployeeDTO dto = new EmployeeDTO(null, "Joaquim", "joaquim@gmail.com", 1L);
+		String jsonBody = objectMapper.writeValueAsString(dto);
+		
+		ResultActions result =
+				mockMvc.perform(post("/employees")
+					.header("Authorization", "Bearer " + accessToken)
+					.content(jsonBody)
+					.contentType(MediaType.APPLICATION_JSON)
+					.accept(MediaType.APPLICATION_JSON));
+		
 		result.andExpect(status().isCreated());
 		result.andExpect(jsonPath("$.id").exists());
 		result.andExpect(jsonPath("$.name").value("Joaquim"));
 		result.andExpect(jsonPath("$.email").value("joaquim@gmail.com"));
 		result.andExpect(jsonPath("$.departmentId").value(1L));
+	}	
+
+	@Test
+	public void insertShouldReturn422WhenAdminLoggedAndBlankName() throws Exception {
+
+		String accessToken = tokenUtil.obtainAccessToken(mockMvc, adminUsername, adminPassword);
+
+		EmployeeDTO dto = new EmployeeDTO(null, "   ", "joaquim@gmail.com", 1L);
+		String jsonBody = objectMapper.writeValueAsString(dto);
+		
+		ResultActions result =
+				mockMvc.perform(post("/employees")
+					.header("Authorization", "Bearer " + accessToken)
+					.content(jsonBody)
+					.contentType(MediaType.APPLICATION_JSON)
+					.accept(MediaType.APPLICATION_JSON));
+		
+		result.andExpect(status().isUnprocessableEntity());
+		result.andExpect(jsonPath("$.errors[0].fieldName").value("name"));
+		result.andExpect(jsonPath("$.errors[0].message").value("Campo requerido"));
+	}
+
+	@Test
+	public void insertShouldReturn422WhenAdminLoggedAndInvalidEmail() throws Exception {
+
+		String accessToken = tokenUtil.obtainAccessToken(mockMvc, adminUsername, adminPassword);
+
+		EmployeeDTO dto = new EmployeeDTO(null, "Joaquim", "joaquim@", 1L);
+		String jsonBody = objectMapper.writeValueAsString(dto);
+		
+		ResultActions result =
+				mockMvc.perform(post("/employees")
+					.header("Authorization", "Bearer " + accessToken)
+					.content(jsonBody)
+					.contentType(MediaType.APPLICATION_JSON)
+					.accept(MediaType.APPLICATION_JSON));
+		
+		result.andExpect(status().isUnprocessableEntity());
+		result.andExpect(jsonPath("$.errors[0].fieldName").value("email"));
+		result.andExpect(jsonPath("$.errors[0].message").value("Email inválido"));
+	}
+
+	@Test
+	public void insertShouldReturn422WhenAdminLoggedAndNullDepartment() throws Exception {
+
+		String accessToken = tokenUtil.obtainAccessToken(mockMvc, adminUsername, adminPassword);
+
+		EmployeeDTO dto = new EmployeeDTO(null, "Joaquim", "joaquim@gmail.com", null);
+		String jsonBody = objectMapper.writeValueAsString(dto);
+		
+		ResultActions result =
+				mockMvc.perform(post("/employees")
+					.header("Authorization", "Bearer " + accessToken)
+					.content(jsonBody)
+					.contentType(MediaType.APPLICATION_JSON)
+					.accept(MediaType.APPLICATION_JSON));
+		
+		result.andExpect(status().isUnprocessableEntity());
+		result.andExpect(jsonPath("$.errors[0].fieldName").value("departmentId"));
+		result.andExpect(jsonPath("$.errors[0].message").value("Campo requerido"));
 	}	
 }
